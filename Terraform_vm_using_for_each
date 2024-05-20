@@ -1,0 +1,150 @@
+variable "vm" {
+  type = map(object({
+    vm_name = string
+    vm_ip = string
+    vm_nic = string    
+    
+  }))
+  default = {
+    # vm1 = {
+    #   vm_name = "web"
+    #   vm_ip = "ipone1"
+    #   vm_nic = "vm1nic1"      
+    # }
+     vm2 = {
+      vm_name = "db"
+      vm_ip = "ipone2"
+      vm_nic = "vm1nic2"
+    }
+    # vm3 = {
+    #   vm_name = "application"
+    #   vm_ip = "ipone3"
+    #   vm_nic = "vm1nic3"
+    # }
+    vm4 = {
+      vm_name = "testing-vm"
+      vm_ip = "testing-ip"
+      vm_nic = "testing-nic"
+    }
+  }
+}
+
+============================
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "=2.48.0"
+    }
+  }
+}
+
+provider "azurerm" {
+  subscription_id = ""
+  tenant_id = ""
+  client_id = ""
+  client_secret = ""
+
+  features {
+
+  }
+}
+
+resource "azurerm_resource_group" "example" {
+  name     = "mytest-terraform-rg"
+  location = "eastus"
+}
+resource "azurerm_virtual_network" "example" {
+  name  = "vnet-terra"
+  location = azurerm_resource_group.example.location
+  resource_group_name = azurerm_resource_group.example.name
+  address_space = ["10.0.0.0/16"]
+}
+resource "azurerm_subnet" "example" {
+  name = "subnet-terra"
+  virtual_network_name = azurerm_virtual_network.example.name
+  resource_group_name = azurerm_resource_group.example.name
+  address_prefixes = ["10.0.0.0/24"]
+}
+
+resource "azurerm_public_ip" "example" {
+  for_each            = var.vm
+  name                = each.value.vm_ip
+  location            = azurerm_resource_group.example.location
+  resource_group_name = azurerm_resource_group.example.name
+  allocation_method   = "Static"  # Static ya Dynamic
+}
+
+  resource "azurerm_network_interface" "example" {
+  for_each  =   var.vm
+  name          = each.value.vm_nic    
+  location = azurerm_resource_group.example.location
+  resource_group_name = azurerm_resource_group.example.name
+
+  ip_configuration {
+    
+    name = "internal-2"
+    subnet_id = azurerm_subnet.example.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id = azurerm_public_ip.example[each.key].id
+
+  }
+  
+}
+  resource "azurerm_network_security_group" "example" {
+  name  =   "securitygroup01"
+  location = azurerm_resource_group.example.location
+  resource_group_name = azurerm_resource_group.example.name
+
+  security_rule { 
+  name = "testnsg"
+  priority = 100
+  direction = "inbound"
+  access = "Allow"
+  protocol = "Tcp"
+  source_port_range = "*"
+  destination_port_ranges     = ["22", "80", "443"]
+  source_address_prefix = "*"
+  destination_address_prefix = "*"
+
+  }
+ }
+  resource "azurerm_network_interface_security_group_association" "example" {
+    network_interface_id = azurerm_network_interface.example[each.key].id
+    network_security_group_id = azurerm_network_security_group.example.id    
+    for_each = var.vm 
+  }
+
+
+  resource "azurerm_linux_virtual_machine" "example" {
+  for_each                 = var.vm
+  name                  = each.value.vm_name
+  resource_group_name = azurerm_resource_group.example.name
+  location = azurerm_resource_group.example.location 
+  size = "Standard_B2s"
+  computer_name = "hostname-${each.value.vm_name}"
+  admin_username = "adminuser"
+  admin_password = "StrongPassword123!"
+  disable_password_authentication = false
+  network_interface_ids = [
+     azurerm_network_interface.example[each.key].id
+  ]
+  
+  
+  os_disk {
+    # name = "os_disk-${each.value.vm_name}"
+    name                = "${each.value.vm_name}-osdisk"
+    caching           = "ReadWrite"
+    storage_account_type = "Standard_LRS"    
+    #disk_size_gb      = count.index == 1 ? 300 : 200
+    
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "18.04-LTS"
+    version   = "latest"
+  }
+}
+
