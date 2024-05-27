@@ -1,3 +1,4 @@
+## https://www.youtube.com/watch?v=nspVPNtpR8U
 variable "vm" {
   type = map(object({
     vm_name = string
